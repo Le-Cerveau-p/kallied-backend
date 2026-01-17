@@ -1,0 +1,252 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  CLIENT
+}
+
+enum ProjectStatus {
+  PENDING
+  AWAITING_APPROVAL
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ProjectEventType {
+  CREATED
+  START_REQUESTED
+  APPROVED
+  PROGRESS_UPDATE
+  COMPLETED
+}
+
+enum DocumentCategory {
+  REPORT
+  CONTRACT
+  DRAWING
+  INVOICE
+  OTHER
+}
+
+enum ProcurementStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum ProcurementItemType {
+  MATERIAL
+  SERVICE
+}
+
+enum PurchaseOrderStatus {
+  CREATED
+  ORDERED
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(CLIENT)
+  createdAt DateTime @default(now())
+
+  // Relations
+  ownedProjects Project[] @relation("ClientProjects")
+  staffProjects ProjectStaff[]
+  documentsUploaded Document[]
+  approvedProjects Project[] @relation("ApprovedProjects")
+  projectsUpdated ProjectUpdate[]
+  notifications Notification[]
+
+  procurementRequests ProcurementRequest[] @relation("UserProcurements")
+  approvedProcurements ProcurementRequest[] @relation("ApprovedProcurements")
+  orders      PurchaseOrder[]
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus   @default(PENDING)
+
+  // Client (Owner)
+  clientId    String
+  client      User     @relation("ClientProjects", fields: [clientId], references: [id])
+
+  // Staff assigned
+  staff       ProjectStaff[]
+
+  // Documents
+  documentGroup DocumentGroup[]
+
+  approvedById String?
+  approvedBy   User?         @relation("ApprovedProjects", fields: [approvedById], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+
+  updates ProjectUpdate[]
+
+  procurements ProcurementRequest[]
+}
+
+model ProjectStaff {
+  id        String   @id @default(uuid())
+  projectId String
+  staffId   String
+
+  project   Project @relation(fields: [projectId], references: [id])
+  staff     User    @relation(fields: [staffId], references: [id])
+
+  assignedAt DateTime @default(now())
+
+  @@unique([projectId, staffId])
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  name      String
+  fileUrl   String
+
+  uploadedById String
+  uploadedBy   User    @relation(fields: [uploadedById], references: [id])
+
+  createdAt DateTime @default(now())
+  category DocumentCategory
+  version   Int
+  groupId   String
+  group     DocumentGroup @relation(fields: [groupId], references: [id])
+  @@unique([groupId, version])
+}
+
+model DocumentGroup {
+  id        String   @id @default(uuid())
+  name      String
+  category  DocumentCategory
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  procurementRequestId String?
+  procurementRequest   ProcurementRequest?  @relation(fields: [procurementRequestId], references: [id])
+
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder?  @relation(fields: [purchaseOrderId], references: [id])
+
+  documents Document[]
+
+  createdAt DateTime @default(now())
+
+  @@index([procurementRequestId])
+  @@index([purchaseOrderId])
+  @@index([projectId])
+}
+
+model ProjectUpdate {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  staffId   String
+  staff     User     @relation(fields: [staffId], references: [id])
+  eventType ProjectEventType
+
+  note      String
+  progress  Int      // 0 - 100
+
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   // PROJECT_APPROVAL, DOCUMENT_UPLOAD, etc
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model ProcurementRequest {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  status      ProcurementStatus @default(DRAFT)
+
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id])
+
+  createdById String
+  createdBy   User    @relation("UserProcurements", fields: [createdById], references: [id])
+
+  approvedById String?
+  approvedBy   User?  @relation("ApprovedProcurements", fields: [approvedById], references: [id])
+  
+  items    ProcurementItem[]
+  documents   DocumentGroup[]
+
+  purchaseOrder      PurchaseOrder?
+
+  rejectionReason String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ProcurementItem {
+  id          String   @id @default(uuid())
+  name        String
+  quantity    Int
+  unit        String   // e.g. kg, pcs, hours
+  estimatedCost Float?
+
+  type        ProcurementItemType
+
+  requestId   String
+  pRequest     ProcurementRequest @relation(fields: [requestId], references: [id])
+
+  createdAt   DateTime @default(now())
+}
+
+model PurchaseOrder {
+  id          String   @id @default(uuid())
+  orderNumber String   @unique
+
+  requestId   String @unique
+  pRequest     ProcurementRequest @relation(fields: [requestId], references: [id])
+
+  status      PurchaseOrderStatus @default(CREATED)
+
+  orderedById String
+  orderedBy   User @relation(fields: [orderedById], references: [id])
+
+  orderedAt   DateTime?
+  deliveredAt DateTime?
+
+  notes       String?
+  documents   DocumentGroup[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
