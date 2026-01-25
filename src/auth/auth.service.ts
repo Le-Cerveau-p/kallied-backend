@@ -11,6 +11,45 @@ export class AuthService {
     private jwt: JwtService,
   ) {}
 
+  async pip() {
+    const password = await bcrypt.hash('Password123!', 10);
+
+    await this.prisma.user.upsert({
+      where: { email: 'admin@kallied.com' },
+      update: {},
+      create: {
+        name: 'System Admin',
+        email: 'admin@kallied.com',
+        password,
+        role: Role.ADMIN,
+      },
+    });
+
+    await this.prisma.user.upsert({
+      where: { email: 'staff@kallied.com' },
+      update: {},
+      create: {
+        name: 'Staff Member',
+        email: 'staff@kallied.com',
+        password,
+        role: Role.STAFF,
+      },
+    });
+
+    await this.prisma.user.upsert({
+      where: { email: 'client@kallied.com' },
+      update: {},
+      create: {
+        name: 'Test Client',
+        email: 'client@kallied.com',
+        password,
+        role: Role.CLIENT,
+      },
+    });
+
+    console.log('✅ Admin & Staff seeded');
+  }
+
   async register(data: { name: string; email: string; password: string }) {
     const existing = await this.prisma.user.findUnique({
       where: { email: data.email },
