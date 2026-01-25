@@ -22,6 +22,11 @@ async function bootstrap() {
     credentials: true,
   });
 
+  app.enableCors({
+    origin: 'https://kallied-frontend.vercel.app/', // frontend
+    credentials: true,
+  });
+
   // Serve uploaded files
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
