@@ -5,11 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import {
   ProcurementStatus,
   Role,
   User,
   PurchaseOrderStatus,
+  AuditAction,
+  AuditEntity,
 } from '@prisma/client';
 import { CreateProcurementDto } from './dto/create-procurement.dto';
 import { UpdateProcurementDto } from './dto/update-procurement.dto';
@@ -21,7 +24,10 @@ import * as fs from 'fs';
 
 @Injectable()
 export class ProcurementService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   // 1️⃣ CREATE
   async create(dto: CreateProcurementDto, user: User) {
@@ -80,6 +86,14 @@ export class ProcurementService {
     if (request.status !== ProcurementStatus.DRAFT) {
       throw new ForbiddenException('Only drafts can be submitted');
     }
+
+    await this.auditService.log(
+      user,
+      AuditAction.SUBMIT,
+      AuditEntity.PROCUREMENT,
+      request.id,
+      'Procurement submitted',
+    );
 
     return this.prisma.procurementRequest.update({
       where: { id },
@@ -358,6 +372,14 @@ export class ProcurementService {
 
     const version = lastVersion ? lastVersion.version + 1 : 1;
 
+    await this.auditService.log(
+      user,
+      AuditAction.UPLOAD,
+      AuditEntity.DOCUMENT,
+      group.id,
+      `Uploaded document "${dto.name}"`,
+    );
+
     return this.prisma.document.create({
       data: {
         name: dto.name,
@@ -437,6 +459,14 @@ export class ProcurementService {
       where: { groupId: group.id },
       orderBy: { version: 'desc' },
     });
+
+    await this.auditService.log(
+      user,
+      AuditAction.UPLOAD,
+      AuditEntity.DOCUMENT,
+      group.id,
+      `Uploaded document "${dto.name}"`,
+    );
 
     return this.prisma.document.create({
       data: {

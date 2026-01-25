@@ -52,12 +52,16 @@ export class ProjectsController {
   }
 
   @Delete(':id/remove-staff/:staffId')
-  @Roles(client.Role.ADMIN)
   removeStaff(
     @Param('id') projectId: string,
     @Param('staffId') staffId: string,
+    @CurrentUser() user: client.User,
   ) {
-    return this.projectsService.removeStaff(projectId, staffId);
+    return this.projectsService.removeStaffFromProject(
+      projectId,
+      staffId,
+      user,
+    );
   }
 
   @Patch(':id/status')

@@ -62,6 +62,52 @@ enum PurchaseOrderStatus {
   CANCELLED
 }
 
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  SUBMIT
+  UPLOAD
+  DOWNLOAD
+  ASSIGN
+  COMPLETE
+  LOGIN
+}
+
+enum AuditEntity {
+  PROJECT
+  PROCUREMENT
+  PURCHASE_ORDER
+  DOCUMENT
+  USER
+}
+
+enum ChatThreadType {
+  MAIN        // Client + Assigned Staff + Admins
+  STAFF_ONLY  // Assigned Staff + Admins
+  CUSTOM      // Admin-created
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+
+  action    AuditAction
+  entity    AuditEntity
+  entityId  String
+
+  actorId  String
+  actor    User @relation(fields: [actorId], references: [id])
+
+  message   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId])
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -81,6 +127,10 @@ model User {
   procurementRequests ProcurementRequest[] @relation("UserProcurements")
   approvedProcurements ProcurementRequest[] @relation("ApprovedProcurements")
   orders      PurchaseOrder[]
+
+  chats       ChatParticipant[]
+  chatMessages  ChatMessage[]
+  actions     AuditLog[]
 }
 
 model Project {
@@ -108,6 +158,8 @@ model Project {
   updates ProjectUpdate[]
 
   procurements ProcurementRequest[]
+
+  threads     ChatThread[]
 }
 
 model ProjectStaff {
@@ -249,4 +301,72 @@ model PurchaseOrder {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model ChatThread {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  type      ChatThreadType
+  name      String?
+
+  participants ChatParticipant[]
+  messages     ChatMessage[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, type])
+}
+
+model ChatParticipant {
+  id        String   @id @default(uuid())
+  threadId  String
+  userId    String
+
+  thread    ChatThread @relation(fields: [threadId], references: [id])
+  user      User       @relation(fields: [userId], references: [id])
+
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+
+  @@unique([threadId, userId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  threadId  String
+  senderId  String
+
+  content   String?
+  type      String   // TEXT | FILE | IMAGE
+
+  thread    ChatThread @relation(fields: [threadId], references: [id])
+  sender    User       @relation(fields: [senderId], references: [id])
+
+  attachments ChatAttachment[]
+  reads       MessageRead[]
+
+  createdAt DateTime @default(now())
+}
+
+model ChatAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  fileUrl   String
+  mimeType String
+  isImage  Boolean
+
+  message  ChatMessage @relation(fields: [messageId], references: [id])
+}
+
+model MessageRead {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  readAt    DateTime @default(now())
+  
+  message   ChatMessage @relation(fields: [messageId], references: [id])
+
+  @@unique([messageId, userId])
 }

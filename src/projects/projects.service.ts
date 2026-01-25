@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import {
   Role,
   User,
@@ -14,16 +15,25 @@ import {
   ProjectStatus,
   ProjectEventType,
   DocumentCategory,
+  AuditAction,
+  AuditEntity,
 } from '@prisma/client';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { CreateProjectUpdateDto } from './dto/create-project-update.dto';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ChatService } from 'src/chat/chat.service';
+import { ChatGateway } from 'src/chat/chat.gateway';
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   async createProject(data: CreateProjectDto, user: User): Promise<Project> {
     if (user.role === Role.CLIENT) {
@@ -50,6 +60,9 @@ export class ProjectsService {
       },
     });
 
+    await this.chatService.createProjectThreads(newProject.id);
+    await this.chatService.addClientToMainThread(newProject.id, data.clientId);
+
     if (user.role === Role.STAFF) {
       await this.prisma.projectStaff.create({
         data: {
@@ -57,6 +70,7 @@ export class ProjectsService {
           staffId: user.id,
         },
       });
+      await this.chatService.addStaffToProjectThreads(newProject.id, user.id);
     }
 
     await this.prisma.projectUpdate.create({
@@ -69,7 +83,81 @@ export class ProjectsService {
       },
     });
 
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PROJECT,
+      newProject.id,
+      `Project "${newProject.name}" created`,
+    );
+
     return newProject;
+  }
+
+  async removeUserFromProjectChats(projectId: string, userId: string) {
+    await this.prisma.chatParticipant.updateMany({
+      where: {
+        userId,
+        thread: { projectId },
+      },
+      data: {
+        leftAt: new Date(),
+      },
+    });
+  }
+
+  async removeStaffFromProject(
+    projectId: string,
+    staffId: string,
+    currentUser: { id: string; role: Role },
+  ) {
+    // 1️⃣ Only ADMIN can remove staff
+    if (currentUser.role !== Role.ADMIN) {
+      throw new ForbiddenException('Only admin can remove staff from project');
+    }
+
+    // 2️⃣ Ensure project exists
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+
+    // 3️⃣ Ensure staff is assigned
+    const assignment = await this.prisma.projectStaff.findUnique({
+      where: {
+        projectId_staffId: {
+          projectId,
+          staffId,
+        },
+      },
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Staff not assigned to this project');
+    }
+
+    // 4️⃣ Remove staff from project
+    await this.prisma.projectStaff.delete({
+      where: {
+        projectId_staffId: {
+          projectId,
+          staffId,
+        },
+      },
+    });
+
+    // 5️⃣ 🔥 REMOVE STAFF FROM ALL PROJECT CHATS
+    await this.chatService.removeUserFromProjectChats(projectId, staffId);
+
+    // 🔥 Emit websocket event
+    this.chatGateway.emitUserRemovedFromProject(projectId, staffId);
+
+    return {
+      message: 'Staff removed from project and chats successfully',
+    };
   }
 
   async assignStaff(projectId: string, staffId: string) {
@@ -85,17 +173,6 @@ export class ProjectsService {
       data: {
         projectId,
         staffId,
-      },
-    });
-  }
-
-  async removeStaff(projectId: string, staffId: string) {
-    return this.prisma.projectStaff.delete({
-      where: {
-        projectId_staffId: {
-          projectId,
-          staffId,
-        },
       },
     });
   }
@@ -237,6 +314,14 @@ export class ProjectsService {
         note: 'Project approved',
       },
     });
+
+    await this.auditService.log(
+      user,
+      AuditAction.APPROVE,
+      AuditEntity.PROJECT,
+      projectId,
+      'Project approved',
+    );
 
     return this.prisma.project.update({
       where: { id: projectId },
