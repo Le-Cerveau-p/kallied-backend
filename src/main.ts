@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-floating-promises */
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -17,13 +18,13 @@ async function bootstrap() {
   );
 
   // CORS
-  app.enableCors({
-    origin: 'http://localhost:5173', // Vite frontend
-    credentials: true,
-  });
+  // app.enableCors({
+  //   origin: 'http://localhost:5173', // Vite frontend
+  //   credentials: true,
+  // });
 
   app.enableCors({
-    origin: 'https://kallied-frontend.vercel.app/', // frontend
+    origin: '*', // frontend
     credentials: true,
   });
 
@@ -32,6 +33,8 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
-  await app.listen(3000);
+  const port = process.env.PORT || 3000;
+
+  await app.listen(port);
 }
 bootstrap();
