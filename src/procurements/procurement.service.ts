@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ParseFloatPipe,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -21,6 +22,7 @@ import { UpdateProcurementItemDto } from './dto/update-procurement-item.dto';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import * as path from 'path';
 import * as fs from 'fs';
+import { th } from 'date-fns/locale/th';
 
 @Injectable()
 export class ProcurementService {
@@ -48,11 +50,24 @@ export class ProcurementService {
       throw new ForbiddenException('You are not assigned to this project');
     }
 
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+    });
+
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PROCUREMENT,
+      dto.projectId,
+      `"${user.name}" created a procurement request for ${project?.name}.`,
+    );
+
     return this.prisma.procurementRequest.create({
       data: {
         title: dto.title,
         description: dto.description,
         projectId: dto.projectId,
+        cost: dto.cost,
         createdById: user.id,
       },
     });
@@ -68,6 +83,18 @@ export class ProcurementService {
     ) {
       throw new ForbiddenException('Cannot edit this request');
     }
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: request.id },
+    });
+
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PROCUREMENT,
+      request.id,
+      `"${user.name}" created a procurement request for ${project?.name}.`,
+    );
 
     return this.prisma.procurementRequest.update({
       where: { id },
@@ -92,12 +119,21 @@ export class ProcurementService {
       AuditAction.SUBMIT,
       AuditEntity.PROCUREMENT,
       request.id,
-      'Procurement submitted',
+      `Procurement submitted by ${user.name}`,
     );
+
+    const result = await this.prisma.procurementItem.aggregate({
+      where: { requestId: id },
+      _sum: {
+        estimatedCost: true,
+      },
+    });
+
+    const total = Number(result._sum.estimatedCost || 0);
 
     return this.prisma.procurementRequest.update({
       where: { id },
-      data: { status: ProcurementStatus.SUBMITTED },
+      data: { cost: total, status: ProcurementStatus.SUBMITTED },
     });
   }
 
@@ -113,6 +149,14 @@ export class ProcurementService {
       throw new ForbiddenException('Request not submitted');
     }
 
+    await this.auditService.log(
+      admin,
+      AuditAction.APPROVE,
+      AuditEntity.PROCUREMENT,
+      request.id,
+      `"${admin.name}" approved procurement ${request?.title}.`,
+    );
+
     return this.prisma.procurementRequest.update({
       where: { id },
       data: {
@@ -127,6 +171,16 @@ export class ProcurementService {
     if (admin.role !== Role.ADMIN) {
       throw new ForbiddenException('Admins only');
     }
+
+    const request = await this.findById(id);
+
+    await this.auditService.log(
+      admin,
+      AuditAction.APPROVE,
+      AuditEntity.PROCUREMENT,
+      request?.id,
+      `"${admin.name}" approved procurement ${request?.title}.`,
+    );
 
     return this.prisma.procurementRequest.update({
       where: { id },
@@ -261,6 +315,14 @@ export class ProcurementService {
       throw new ForbiddenException('Cannot generate PO without items');
     }
 
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PURCHASE_ORDER,
+      request.id,
+      `"${user.name}" generated purchase order for ${request?.title}.`,
+    );
+
     return this.prisma.$transaction(async (tx) => {
       return tx.purchaseOrder.create({
         data: {
@@ -277,6 +339,19 @@ export class ProcurementService {
       throw new ForbiddenException('Only admin can mark ordered');
     }
 
+    const request = await this.prisma.purchaseOrder.findFirstOrThrow({
+      where: { id: poId },
+      include: { pRequest: true },
+    });
+
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PURCHASE_ORDER,
+      request.id,
+      `"${user.name}" marked purchase order for ${request.pRequest.title} as ordered.`,
+    );
+
     return await this.prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
@@ -290,6 +365,19 @@ export class ProcurementService {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Only admin can mark delivered');
     }
+
+    const request = await this.prisma.purchaseOrder.findFirstOrThrow({
+      where: { id: poId },
+      include: { pRequest: true },
+    });
+
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PURCHASE_ORDER,
+      request.id,
+      `"${user.name}" marked purchase order for ${request.pRequest.title} as delivered.`,
+    );
 
     return await this.prisma.purchaseOrder.update({
       where: { id: poId },

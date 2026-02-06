@@ -55,8 +55,10 @@ export class ProjectsService {
       data: {
         name: data.name,
         description: data.description,
+        category: data.category,
         clientId: data.clientId,
         status: ProjectStatus.PENDING,
+        eCD: data.eCD ? new Date(data.eCD) : null,
       },
     });
 
@@ -94,6 +96,27 @@ export class ProjectsService {
     return newProject;
   }
 
+  async updateECD(projectId: string, eCD: Date, user: User) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Admins only');
+    }
+
+    const updatedProject = this.prisma.project.update({
+      where: { id: projectId },
+      data: { eCD },
+    });
+
+    await this.auditService.log(
+      user,
+      AuditAction.CREATE,
+      AuditEntity.PROJECT,
+      (await updatedProject).id,
+      `Project "${(await updatedProject).name}" estimated completion time updated`,
+    );
+
+    return updatedProject;
+  }
+
   async removeUserFromProjectChats(projectId: string, userId: string) {
     await this.prisma.chatParticipant.updateMany({
       where: {
@@ -109,7 +132,7 @@ export class ProjectsService {
   async removeStaffFromProject(
     projectId: string,
     staffId: string,
-    currentUser: { id: string; role: Role },
+    currentUser: User,
   ) {
     // 1️⃣ Only ADMIN can remove staff
     if (currentUser.role !== Role.ADMIN) {
@@ -155,12 +178,25 @@ export class ProjectsService {
     // 🔥 Emit websocket event
     this.chatGateway.emitUserRemovedFromProject(projectId, staffId);
 
+    const removedStaff = await this.prisma.user.findUnique({
+      where: {
+        id: staffId,
+      },
+    });
+    await this.auditService.log(
+      currentUser,
+      AuditAction.REMOVE,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${removedStaff?.name}" Staff removed from project and chats.`,
+    );
+
     return {
       message: 'Staff removed from project and chats successfully',
     };
   }
 
-  async assignStaff(projectId: string, staffId: string) {
+  async assignStaff(projectId: string, staffId: string, user: User) {
     const staff = await this.prisma.user.findUnique({
       where: { id: staffId },
     });
@@ -168,6 +204,19 @@ export class ProjectsService {
     if (!staff || staff.role !== Role.STAFF) {
       throw new ForbiddenException('Invalid staff user');
     }
+
+    const assignedStaff = await this.prisma.user.findUnique({
+      where: {
+        id: staffId,
+      },
+    });
+    await this.auditService.log(
+      user,
+      AuditAction.ASSIGN,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${assignedStaff?.name}" Staff assigned to project`,
+    );
 
     return this.prisma.projectStaff.create({
       data: {
@@ -238,6 +287,14 @@ export class ProjectsService {
       throw new ForbiddenException('Clients cannot update project status');
     }
 
+    await this.auditService.log(
+      user,
+      AuditAction.UPDATE,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${user.name}"updated Project ${project?.name} to ${status}.`,
+    );
+
     return this.prisma.project.update({
       where: { id: projectId },
       data: { status },
@@ -288,6 +345,14 @@ export class ProjectsService {
         note: 'Project submitted for approval',
       },
     });
+
+    await this.auditService.log(
+      user,
+      AuditAction.REQUEST,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${user.name}" requested approval to start project: ${project.name}`,
+    );
   }
 
   async approveProject(projectId: string, user: User) {
@@ -354,13 +419,21 @@ export class ProjectsService {
       },
     });
 
+    await this.auditService.log(
+      user,
+      AuditAction.COMPLETE,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${user.name}" approved ${project.name} completion`,
+    );
+
     return this.prisma.project.update({
       where: { id: projectId },
       data: { status: ProjectStatus.COMPLETED },
     });
   }
 
-  async addUpdate(projectId: string, data: CreateProjectUpdateDto, user: any) {
+  async addUpdate(projectId: string, data: CreateProjectUpdateDto, user: User) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
     });
@@ -385,6 +458,14 @@ export class ProjectsService {
     if (!assignment) {
       throw new ForbiddenException('You are not assigned to this project');
     }
+
+    await this.auditService.log(
+      user,
+      AuditAction.UPDATE,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${user.name}" added an update to ${project?.name}.`,
+    );
 
     return this.prisma.projectUpdate.create({
       data: {
@@ -476,6 +557,14 @@ export class ProjectsService {
     });
 
     const nextVersion = lastDoc ? lastDoc.version + 1 : 1;
+
+    await this.auditService.log(
+      user,
+      AuditAction.UPLOAD,
+      AuditEntity.PROJECT,
+      projectId,
+      `"${user.name}" uploaded a document concerning ${project?.name}.`,
+    );
 
     // 3️⃣ Save document
     return this.prisma.document.create({

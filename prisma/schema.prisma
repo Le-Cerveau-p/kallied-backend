@@ -74,6 +74,8 @@ enum AuditAction {
   ASSIGN
   COMPLETE
   LOGIN
+  REMOVE
+  REQUEST
 }
 
 enum AuditEntity {
@@ -82,6 +84,16 @@ enum AuditEntity {
   PURCHASE_ORDER
   DOCUMENT
   USER
+}
+
+enum ProjectCategory {
+  CONSTRUCTION
+  ENGINEERING
+  PROCUREMENT
+  CONSULTANCY
+  MAINTENANCE
+  GOVERNMENT
+  RESEARCH
 }
 
 enum ChatThreadType {
@@ -137,6 +149,7 @@ model Project {
   id          String   @id @default(uuid())
   name        String
   description String?
+  category    ProjectCategory?
   status      ProjectStatus   @default(PENDING)
 
   // Client (Owner)
@@ -153,6 +166,7 @@ model Project {
   approvedBy   User?         @relation("ApprovedProjects", fields: [approvedById], references: [id])
 
   createdAt   DateTime @default(now())
+  eCD         DateTime? 
   updatedAt   DateTime @default(now())
 
   updates ProjectUpdate[]
@@ -257,6 +271,7 @@ model ProcurementRequest {
   
   items    ProcurementItem[]
   documents   DocumentGroup[]
+  cost      Float?
 
   purchaseOrder      PurchaseOrder?
 

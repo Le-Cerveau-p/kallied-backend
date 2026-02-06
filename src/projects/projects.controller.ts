@@ -45,10 +45,24 @@ export class ProjectsController {
     return this.projectsService.getProjectsForUser(user);
   }
 
+  @Post(':id/updateECD')
+  @Roles(client.Role.ADMIN)
+  updateECD(
+    @Param('id') projectId: string,
+    @Body() body: CreateProjectDto,
+    @CurrentUser() user: client.User,
+  ) {
+    return this.projectsService.updateECD(projectId, body.eCD, user);
+  }
+
   @Post(':id/assign-staff')
   @Roles(client.Role.ADMIN)
-  assignStaff(@Param('id') projectId: string, @Body() body: AssignStaffDto) {
-    return this.projectsService.assignStaff(projectId, body.staffId);
+  assignStaff(
+    @Param('id') projectId: string,
+    @Body() body: AssignStaffDto,
+    user: client.User,
+  ) {
+    return this.projectsService.assignStaff(projectId, body.staffId, user);
   }
 
   @Delete(':id/remove-staff/:staffId')

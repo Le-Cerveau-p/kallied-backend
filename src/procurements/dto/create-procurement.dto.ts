@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsPositive } from 'class-validator';
 
 export class CreateProcurementDto {
   @IsString()
@@ -10,4 +10,8 @@ export class CreateProcurementDto {
 
   @IsString()
   projectId: string;
+
+  @IsOptional()
+  @IsPositive()
+  cost?: number;
 }

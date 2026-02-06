@@ -1,5 +1,6 @@
 // projects/dto/create-project.dto.ts
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsDate, IsEnum } from 'class-validator';
+import { ProjectCategory } from '@prisma/client';
 
 export class CreateProjectDto {
   @IsString()
@@ -11,4 +12,10 @@ export class CreateProjectDto {
 
   @IsUUID()
   clientId: string; // REQUIRED
+
+  @IsEnum(ProjectCategory)
+  category: ProjectCategory;
+
+  @IsDate()
+  eCD: Date;
 }
