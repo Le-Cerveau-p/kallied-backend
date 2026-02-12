@@ -19,6 +19,11 @@ enum Role {
   CLIENT
 }
 
+enum UserStatus {
+  ENABLED
+  DISABLED
+}
+
 enum ProjectStatus {
   PENDING
   AWAITING_APPROVAL
@@ -39,6 +44,7 @@ enum DocumentCategory {
   CONTRACT
   DRAWING
   INVOICE
+  ANALYTICS
   OTHER
 }
 
@@ -84,6 +90,8 @@ enum AuditEntity {
   PURCHASE_ORDER
   DOCUMENT
   USER
+  INVOICE
+  RECEIPT
 }
 
 enum ProjectCategory {
@@ -94,12 +102,28 @@ enum ProjectCategory {
   MAINTENANCE
   GOVERNMENT
   RESEARCH
+  TECH
 }
 
 enum ChatThreadType {
   MAIN        // Client + Assigned Staff + Admins
   STAFF_ONLY  // Assigned Staff + Admins
   CUSTOM      // Admin-created
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+  OVERDUE
+}
+
+enum TimesheetStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 model AuditLog {
@@ -126,10 +150,17 @@ model User {
   email     String   @unique
   password  String
   role      Role     @default(CLIENT)
+  status    UserStatus @default(ENABLED)
+  authInvalidatedAt DateTime?
   createdAt DateTime @default(now())
+  companyName String?
+  department  String?
+  address     String?
+  phone       String?
 
   // Relations
   ownedProjects Project[] @relation("ClientProjects")
+  createdProjects Project[] @relation("StaffCreatedProjects")
   staffProjects ProjectStaff[]
   documentsUploaded Document[]
   approvedProjects Project[] @relation("ApprovedProjects")
@@ -140,9 +171,48 @@ model User {
   approvedProcurements ProcurementRequest[] @relation("ApprovedProcurements")
   orders      PurchaseOrder[]
 
+  clientInvoices  Invoice[] @relation("ClientInvoices")
+  createdInvoices  Invoice[] @relation("CreatedInvoices")
+  approvedInvoices Invoice[] @relation("ApprovedInvoices")
+
+  staffTimesheets   TimesheetEntry[] @relation("StaffTimesheets")
+  reviewedTimesheets TimesheetEntry[] @relation("ReviewedTimesheets")
+
   chats       ChatParticipant[]
   chatMessages  ChatMessage[]
   actions     AuditLog[]
+  otpTokens   OtpToken[]
+}
+
+model CompanyProfile {
+  id           String   @id @default("default")
+  name         String
+  department   String?
+  address      String?
+  email        String?
+  phone        String?
+  mapLabel     String?
+  mapAddress   String?
+  mapUrl       String?
+  mapEmbedUrl  String?
+  mapLat       Float?
+  mapLng       Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model OtpToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  purpose   String
+  otpHash   String
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, purpose])
+  @@index([expiresAt])
 }
 
 model Project {
@@ -151,6 +221,7 @@ model Project {
   description String?
   category    ProjectCategory?
   status      ProjectStatus   @default(PENDING)
+  budget      Float?
 
   // Client (Owner)
   clientId    String
@@ -164,6 +235,8 @@ model Project {
 
   approvedById String?
   approvedBy   User?         @relation("ApprovedProjects", fields: [approvedById], references: [id])
+  createdById   String?
+  createdBy    User?          @relation("StaffCreatedProjects", fields: [createdById], references: [id])
 
   createdAt   DateTime @default(now())
   eCD         DateTime? 
@@ -172,6 +245,9 @@ model Project {
   updates ProjectUpdate[]
 
   procurements ProcurementRequest[]
+
+  invoices Invoice[]
+  timesheets TimesheetEntry[]
 
   threads     ChatThread[]
 }
@@ -316,6 +392,90 @@ model PurchaseOrder {
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique
+  status        InvoiceStatus @default(DRAFT)
+
+  projectId     String
+  project       Project       @relation(fields: [projectId], references: [id])
+
+  clientId      String
+  client        User          @relation("ClientInvoices", fields: [clientId], references: [id])
+
+  createdById   String
+  createdBy     User          @relation("CreatedInvoices", fields: [createdById], references: [id])
+
+  approvedById  String?
+  approvedBy    User?         @relation("ApprovedInvoices", fields: [approvedById], references: [id])
+
+  issueDate     DateTime      @default(now())
+  dueDate       DateTime
+
+  subtotal      Float
+  tax           Float
+  total         Float
+
+  notes           String?
+  rejectionReason String?
+
+  clientMarkedPaid   Boolean   @default(false)
+  clientMarkedPaidAt DateTime?
+  paymentConfirmedAt DateTime?
+  paidAt             DateTime?
+
+  fileUrl      String?
+  receiptUrl   String?
+
+  lineItems    InvoiceLineItem[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([clientId])
+  @@index([status])
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  description String
+  quantity    Int
+  rate        Float
+  amount      Float
+}
+
+model TimesheetEntry {
+  id        String   @id @default(uuid())
+  projectId String
+  staffId   String
+
+  project   Project  @relation(fields: [projectId], references: [id])
+  staff     User     @relation("StaffTimesheets", fields: [staffId], references: [id])
+
+  entryDate DateTime
+  hours     Float
+  notes     String?
+
+  status    TimesheetStatus @default(PENDING)
+  submittedAt DateTime @default(now())
+
+  reviewedById String?
+  reviewedBy   User?    @relation("ReviewedTimesheets", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([staffId])
+  @@index([status])
+  @@index([entryDate])
 }
 
 model ChatThread {

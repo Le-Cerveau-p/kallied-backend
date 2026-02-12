@@ -14,11 +14,21 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { User } from '@prisma/client';
+import { ChatGateway } from './chat.gateway';
 
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
+
+  // GET /chat/threads
+  @Get('threads')
+  getAllThreads(@CurrentUser() user: User) {
+    return this.chatService.getUserThreads(user);
+  }
 
   // GET /chat/threads/:projectId
   @Get('threads/:projectId')
@@ -35,15 +45,15 @@ export class ChatController {
   // POST /chat/threads/:id/message
   @Post('threads/:id/message')
   @UseInterceptors(FilesInterceptor('files'))
-  sendMessage(
+  async sendMessage(
     @Param('id') threadId: string,
     @UploadedFiles() files: Express.Multer.File[],
     @Body() dto: SendMessageDto,
     @CurrentUser() user: User,
   ) {
-    // 🔹 Text-only message
+    // Text-only message
     if (!files || files.length === 0) {
-      return this.chatService.createMessage(
+      const message = await this.chatService.createMessage(
         {
           threadId,
           type: 'TEXT',
@@ -51,14 +61,21 @@ export class ChatController {
         },
         user.id,
       );
+      this.chatGateway.server
+        ?.to(`thread:${threadId}`)
+        .emit('new-message', message);
+      this.chatGateway.server?.to(`thread:${threadId}`).emit('thread-updated', {
+        threadId,
+      });
+      return message;
     }
 
-    // 🔹 File/Image message
+    // File/Image message
     const file = files[0];
 
     const isImage = file.mimetype.startsWith('image/');
 
-    return this.chatService.createMessage(
+    const message = await this.chatService.createMessage(
       {
         threadId,
         type: isImage ? 'IMAGE' : 'FILE',
@@ -71,12 +88,30 @@ export class ChatController {
       },
       user.id,
     );
+    this.chatGateway.server
+      ?.to(`thread:${threadId}`)
+      .emit('new-message', message);
+    this.chatGateway.server?.to(`thread:${threadId}`).emit('thread-updated', {
+      threadId,
+    });
+    return message;
   }
 
   // POST /chat/messages/:id/read
   @Post('messages/:id/read')
   markRead(@Param('id') messageId: string, @CurrentUser() user: User) {
     return this.chatService.markRead(messageId, user.id);
+  }
+
+  // POST /chat/threads/:id/read
+  @Post('threads/:id/read')
+  async markThreadRead(@Param('id') threadId: string, @CurrentUser() user: User) {
+    await this.chatService.markThreadRead(threadId, user.id);
+    this.chatGateway.server?.to(`thread:${threadId}`).emit('thread-read', {
+      threadId,
+      userId: user.id,
+    });
+    return { success: true };
   }
 
   // GET /chat/threads/:id/unread-count

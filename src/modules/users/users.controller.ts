@@ -17,6 +17,12 @@ export class UsersController {
     return this.usersService.getStaffUsers();
   }
 
+  @Get('clients')
+  @Roles(client.Role.ADMIN, client.Role.STAFF)
+  getClientUsers() {
+    return this.usersService.getClientUsers();
+  }
+
   @Get('me')
   @Roles(client.Role.ADMIN, client.Role.STAFF, client.Role.CLIENT)
   getCurrentUser(@CurrentUser() user: client.User) {

@@ -36,13 +36,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    // Join all project rooms
+    // Join all project rooms (staff)
     const projects = await this.prisma.projectStaff.findMany({
       where: { staffId: userId },
     });
 
     projects.forEach((p) => {
       void client.join(`project:${p.projectId}`);
+    });
+
+    // Join all thread rooms where the user is a participant
+    const threadMemberships = await this.prisma.chatParticipant.findMany({
+      where: { userId, leftAt: null },
+      select: { threadId: true },
+    });
+
+    threadMemberships.forEach((membership) => {
+      void client.join(`thread:${membership.threadId}`);
     });
   }
 
@@ -96,9 +106,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const thread = await this.prisma.chatThread.findUnique({
+      where: { id: message.threadId },
+      select: { projectId: true },
+    });
+
     this.server.to(`thread:${payload.threadId}`).emit('new-message', message);
     this.server.to(`thread:${message.threadId}`).emit('unread-update', {
       threadId: message.threadId,
+    });
+    this.server.to(`thread:${message.threadId}`).emit('thread-updated', {
+      threadId: message.threadId,
+      projectId: thread?.projectId,
     });
 
     return message;

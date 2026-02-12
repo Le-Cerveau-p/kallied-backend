@@ -9,6 +9,9 @@ import { ProcurementModule } from './procurements/procurement.module';
 import { AuditModule } from './audit/audit.module';
 import { ChatModule } from './chat/chat.module';
 import { AdminModule } from './admin/admin.module';
+import { StaffModule } from './staff/staff.module';
+import { ClientModule } from './client/client.module';
+import { CompanyModule } from './company/company.module';
 
 @Module({
   imports: [
@@ -28,6 +31,9 @@ import { AdminModule } from './admin/admin.module';
     AuditModule,
     ChatModule,
     AdminModule,
+    StaffModule,
+    ClientModule,
+    CompanyModule,
   ],
 })
 export class AppModule {}

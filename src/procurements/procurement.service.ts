@@ -85,15 +85,15 @@ export class ProcurementService {
     }
 
     const project = await this.prisma.project.findUnique({
-      where: { id: request.id },
+      where: { id: request.projectId },
     });
 
     await this.auditService.log(
       user,
-      AuditAction.CREATE,
+      AuditAction.UPDATE,
       AuditEntity.PROCUREMENT,
       request.id,
-      `"${user.name}" created a procurement request for ${project?.name}.`,
+      `"${user.name}" updated procurement request for ${project?.name}.`,
     );
 
     return this.prisma.procurementRequest.update({
@@ -122,14 +122,15 @@ export class ProcurementService {
       `Procurement submitted by ${user.name}`,
     );
 
-    const result = await this.prisma.procurementItem.aggregate({
+    const items = await this.prisma.procurementItem.findMany({
       where: { requestId: id },
-      _sum: {
-        estimatedCost: true,
-      },
+      select: { estimatedCost: true, quantity: true },
     });
 
-    const total = Number(result._sum.estimatedCost || 0);
+    const total = items.reduce(
+      (sum, item) => sum + (item.estimatedCost ?? 0) * item.quantity,
+      0,
+    );
 
     return this.prisma.procurementRequest.update({
       where: { id },
@@ -174,12 +175,16 @@ export class ProcurementService {
 
     const request = await this.findById(id);
 
+    if (request.status !== ProcurementStatus.SUBMITTED) {
+      throw new ForbiddenException('Request not submitted');
+    }
+
     await this.auditService.log(
       admin,
-      AuditAction.APPROVE,
+      AuditAction.REJECT,
       AuditEntity.PROCUREMENT,
       request?.id,
-      `"${admin.name}" approved procurement ${request?.title}.`,
+      `"${admin.name}" rejected procurement ${request?.title}.`,
     );
 
     return this.prisma.procurementRequest.update({

@@ -57,8 +57,10 @@ export class ProjectsService {
         description: data.description,
         category: data.category,
         clientId: data.clientId,
+        createdById: user.id,
         status: ProjectStatus.PENDING,
         eCD: data.eCD ? new Date(data.eCD) : null,
+        budget: data.budget,
       },
     });
 
@@ -81,7 +83,7 @@ export class ProjectsService {
         staffId: user.id,
         eventType: ProjectEventType.CREATED,
         progress: 0,
-        note: 'Project submitted for approval',
+        note: 'Project created',
       },
     });
 
@@ -276,6 +278,17 @@ export class ProjectsService {
   ) {
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
+      include: {
+        updates: {
+          include: {
+            staff: true,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 1, // latest update for progress
+        },
+      },
     });
 
     if (!project) {
@@ -286,6 +299,16 @@ export class ProjectsService {
     if (user.role === Role.CLIENT) {
       throw new ForbiddenException('Clients cannot update project status');
     }
+
+    await this.prisma.projectUpdate.create({
+      data: {
+        projectId: projectId,
+        staffId: user.id,
+        eventType: ProjectEventType.PROGRESS_UPDATE,
+        note: `Project status updated to ${status}`,
+        progress: project.updates[0].progress,
+      },
+    });
 
     await this.auditService.log(
       user,

@@ -1,8 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '@prisma/client';
+import { Role, UserStatus } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -50,7 +50,15 @@ export class AuthService {
     console.log('✅ Admin & Staff seeded');
   }
 
-  async register(data: { name: string; email: string; password: string }) {
+  async register(data: {
+    name: string;
+    email: string;
+    password: string;
+    companyName?: string;
+    department?: string;
+    address?: string;
+    phone?: string;
+  }) {
     const existing = await this.prisma.user.findUnique({
       where: { email: data.email },
     });
@@ -67,6 +75,10 @@ export class AuthService {
         email: data.email,
         password: hashed,
         role: Role.CLIENT,
+        companyName: data.companyName,
+        department: data.department,
+        address: data.address,
+        phone: data.phone,
       },
     });
 
@@ -88,6 +100,9 @@ export class AuthService {
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
       throw new BadRequestException('Invalid credentials');
+    }
+    if (user.status === UserStatus.DISABLED) {
+      throw new ForbiddenException('Account is disabled');
     }
 
     const expiresIn = 60 * 240;

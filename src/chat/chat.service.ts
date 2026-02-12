@@ -105,6 +105,88 @@ export class ChatService {
     });
   }
 
+  async getUserThreads(user: User) {
+    const where =
+      user.role === Role.ADMIN
+        ? {}
+        : {
+            participants: {
+              some: {
+                userId: user.id,
+                leftAt: null,
+              },
+            },
+          };
+
+    const threads = await this.prisma.chatThread.findMany({
+      where,
+      include: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+          },
+        },
+        participants: {
+          where: { leftAt: null },
+          include: {
+            user: {
+              select: { id: true, name: true, role: true, email: true },
+            },
+          },
+        },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            sender: { select: { id: true, name: true, role: true } },
+            attachments: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return Promise.all(
+      threads.map(async (thread) => {
+        const isJoined = thread.participants.some(
+          (participant) => participant.userId === user.id,
+        );
+        const unreadCount =
+          user.role === Role.ADMIN && !isJoined
+            ? 0
+            : await this.getUnreadCount(thread.id, user.id);
+        const lastMessage = thread.messages[0];
+        const lastMessageText =
+          lastMessage?.content ??
+          (lastMessage?.type === 'IMAGE'
+            ? 'Sent an image'
+            : lastMessage?.type === 'FILE'
+              ? 'Sent a file'
+              : null);
+
+        return {
+          id: thread.id,
+          projectId: thread.projectId,
+          projectName: thread.project?.name ?? 'Unknown Project',
+          projectStatus: thread.project?.status ?? null,
+          type: thread.type,
+          participants: thread.participants.map((participant) => ({
+            id: participant.user.id,
+            name: participant.user.name,
+            role: participant.user.role,
+            email: participant.user.email,
+          })),
+          lastMessage: lastMessageText,
+          lastMessageAt: lastMessage?.createdAt ?? null,
+          unreadCount,
+          adminJoined: user.role === Role.ADMIN ? isJoined : true,
+        };
+      }),
+    );
+  }
+
   // 🔹 Get threads for a project
   async getThreads(projectId: string, user: User) {
     // Must be client of project OR assigned staff OR admin
@@ -125,25 +207,67 @@ export class ChatService {
       throw new ForbiddenException();
     }
 
-    return this.prisma.chatThread.findMany({
-      where: {
-        projectId,
-        participants: {
-          some: {
-            userId: user.id,
-            leftAt: null,
-          },
-        },
-      },
+    const threadWhere =
+      user.role === Role.ADMIN
+        ? { projectId }
+        : {
+            projectId,
+            participants: {
+              some: {
+                userId: user.id,
+                leftAt: null,
+              },
+            },
+          };
+
+    const threads = await this.prisma.chatThread.findMany({
+      where: threadWhere,
       include: {
         participants: {
+          where: { leftAt: null },
           include: { user: true },
         },
-        _count: {
-          select: { messages: true },
+        messages: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
         },
       },
     });
+
+    return Promise.all(
+      threads.map(async (thread) => {
+        const isJoined = thread.participants.some(
+          (participant) => participant.userId === user.id,
+        );
+        const unreadCount =
+          user.role === Role.ADMIN && !isJoined
+            ? 0
+            : await this.getUnreadCount(thread.id, user.id);
+        const lastMessage = thread.messages[0];
+        const lastMessageText =
+          lastMessage?.content ??
+          (lastMessage?.type === 'IMAGE'
+            ? 'Sent an image'
+            : lastMessage?.type === 'FILE'
+              ? 'Sent a file'
+              : null);
+
+        return {
+          id: thread.id,
+          projectId: thread.projectId,
+          type: thread.type,
+          participants: thread.participants.map((participant) => ({
+            id: participant.user.id,
+            name: participant.user.name,
+            role: participant.user.role,
+            email: participant.user.email,
+          })),
+          lastMessage: lastMessageText,
+          lastMessageAt: lastMessage?.createdAt ?? null,
+          unreadCount,
+        };
+      }),
+    );
   }
 
   // 🔹 Get messages in a thread
@@ -160,7 +284,7 @@ export class ChatService {
       throw new ForbiddenException();
     }
 
-    return this.prisma.chatMessage.findMany({
+    const messages = await this.prisma.chatMessage.findMany({
       where: { threadId },
       include: {
         sender: true,
@@ -168,6 +292,22 @@ export class ChatService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    const unreadMessageIds = messages
+      .filter((message) => message.senderId !== user.id)
+      .map((message) => message.id);
+
+    if (unreadMessageIds.length > 0) {
+      await this.prisma.messageRead.createMany({
+        data: unreadMessageIds.map((messageId) => ({
+          messageId,
+          userId: user.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    return messages;
   }
 
   // 🔹 Send message
@@ -250,6 +390,38 @@ export class ChatService {
         messageId,
         userId,
       },
+    });
+  }
+
+  async markThreadRead(threadId: string, userId: string) {
+    const participant = await this.prisma.chatParticipant.findFirst({
+      where: {
+        threadId,
+        userId,
+        leftAt: null,
+      },
+    });
+
+    if (!participant) {
+      throw new ForbiddenException('Not part of this chat');
+    }
+
+    const messageIds = await this.prisma.chatMessage.findMany({
+      where: {
+        threadId,
+        senderId: { not: userId },
+      },
+      select: { id: true },
+    });
+
+    if (messageIds.length === 0) return;
+
+    await this.prisma.messageRead.createMany({
+      data: messageIds.map((message) => ({
+        messageId: message.id,
+        userId,
+      })),
+      skipDuplicates: true,
     });
   }
 
