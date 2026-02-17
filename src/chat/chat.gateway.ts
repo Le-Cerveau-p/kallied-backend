@@ -15,6 +15,7 @@ import { UseGuards } from '@nestjs/common';
 import { JwtWsGuard } from '../auth/jwt-ws.guard';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -27,10 +28,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly chatService: ChatService,
     private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
   ) {}
 
   async handleConnection(client: Socket) {
-    const userId = client.data.userId;
+    if (!client.data.userId) {
+      const authToken = client.handshake.auth?.token;
+      const headerValue = client.handshake.headers?.authorization;
+      const headerToken =
+        typeof headerValue === 'string'
+          ? headerValue.split(' ')[1]
+          : undefined;
+      const token = authToken || headerToken;
+
+      if (!token) {
+        client.disconnect();
+        return;
+      }
+
+      try {
+        const payload = this.jwtService.verify(token);
+        client.data.userId = payload.sub;
+      } catch {
+        client.disconnect();
+        return;
+      }
+    }
+
+    const userId = client.data.userId as string | undefined;
     if (!userId) {
       client.disconnect();
       return;

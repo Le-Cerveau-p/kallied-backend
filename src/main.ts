@@ -28,8 +28,8 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Serve uploaded files
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
+  // Serve uploaded files from the same root used by file writes (process.cwd()/uploads)
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
 
