@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ContactMessageDto } from './dto/contact-message.dto';
+import { sendContactEmail } from '../utils/mailer';
 
 export interface CompanyProfileInput {
   name?: string;
@@ -93,5 +95,16 @@ export class CompanyService {
           (this.getDefaults().mapLng ?? undefined),
       },
     });
+  }
+
+  async sendContactMessage(data: ContactMessageDto) {
+    await sendContactEmail({
+      name: data.name.trim(),
+      email: data.email.trim(),
+      subject: data.subject.trim(),
+      message: data.message.trim(),
+    });
+
+    return { success: true };
   }
 }

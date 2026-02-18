@@ -1,9 +1,13 @@
 import nodemailer from 'nodemailer';
 
 const DEFAULT_SENDER_EMAIL = 'techcity025@gmail.com';
+const DEFAULT_CONTACT_RECEIVER_EMAIL = 'techcity025@gmail.com';
 
 const getSenderEmail = () =>
   process.env.OTP_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
+
+const getContactReceiverEmail = () =>
+  process.env.CONTACT_RECEIVER_EMAIL ?? DEFAULT_CONTACT_RECEIVER_EMAIL;
 
 const getTransporter = () => {
   const user = getSenderEmail();
@@ -43,6 +47,33 @@ export const sendOtpEmail = async (params: {
     to,
     subject: `K-Allied OTP (${params.purpose})`,
     text: `OTP: ${params.otp}\nPurpose: ${params.purpose}\nRequested by: ${params.requestedBy}\nExpires at: ${expiresAt}`,
+  });
+
+  return { to };
+};
+
+export const sendContactEmail = async (params: {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}) => {
+  const transporter = getTransporter();
+  const from = getSenderEmail();
+  const to = getContactReceiverEmail();
+
+  await transporter.sendMail({
+    from: `K-Allied Website <${from}>`,
+    to,
+    replyTo: params.email,
+    subject: `[Website Contact] ${params.subject}`,
+    text: [
+      `Name: ${params.name}`,
+      `Email: ${params.email}`,
+      `Subject: ${params.subject}`,
+      '',
+      params.message,
+    ].join('\n'),
   });
 
   return { to };
