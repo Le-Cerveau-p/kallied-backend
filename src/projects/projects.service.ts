@@ -21,10 +21,10 @@ import {
 import { CreateProjectDto } from './dto/create-project.dto';
 import { CreateProjectUpdateDto } from './dto/create-project-update.dto';
 import { CreateDocumentDto } from './dto/create-document.dto';
-import * as fs from 'fs';
-import * as path from 'path';
 import { ChatService } from 'src/chat/chat.service';
 import { ChatGateway } from 'src/chat/chat.gateway';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { r2 } from 'src/common/r2.service';
 
 @Injectable()
 export class ProjectsService {
@@ -536,23 +536,18 @@ export class ProjectsService {
       }
     }
 
-    const uploadDir = path.join(
-      process.cwd(),
-      'uploads',
-      'projects',
-      projectId,
+    const filename = `${projectId}/${Date.now()}-${file.originalname}`;
+
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET!,
+        Key: filename,
+        Body: file.buffer,
+        ContentType: file.mimetype,
+      }),
     );
 
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
-    const filename = `${Date.now()}-${file.originalname}`;
-    const filePath = path.join(uploadDir, filename);
-
-    fs.writeFileSync(filePath, file.buffer);
-
-    const fileUrl = `/uploads/projects/${projectId}/${filename}`;
+    const fileUrl = `${process.env.R2_PUBLIC_URL}/${filename}`;
 
     // 1️⃣ Find or create document group
     let group = await this.prisma.documentGroup.findFirst({

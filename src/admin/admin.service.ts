@@ -1,8 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import * as fs from 'fs';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ProcurementStatus,
@@ -21,14 +24,13 @@ import { ProjectsService } from 'src/projects/projects.service';
 import { ProcurementService } from 'src/procurements/procurement.service';
 import { AuditService } from 'src/audit/audit.service';
 import * as bcrypt from 'bcrypt';
-import {
-  buildInvoicePdf,
-  buildReceiptPdf,
-  resolveUploadsPath,
-  writePdfToUploads,
-} from 'src/invoices/invoice-pdf';
+import { buildInvoicePdf, buildReceiptPdf } from 'src/invoices/invoice-pdf';
 import { sendOtpEmail } from 'src/utils/mailer';
-import { CompanyService, CompanyProfileInput } from 'src/company/company.service';
+import {
+  CompanyService,
+  CompanyProfileInput,
+} from 'src/company/company.service';
+import { getFile, uploadFile } from 'src/common/storage.service';
 
 @Injectable()
 export class AdminService {
@@ -366,11 +368,7 @@ export class AdminService {
     return updated;
   }
 
-  async updateUserStatus(
-    admin: User,
-    userId: string,
-    status: UserStatus,
-  ) {
+  async updateUserStatus(admin: User, userId: string, status: UserStatus) {
     const existing = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -412,16 +410,10 @@ export class AdminService {
     return updated;
   }
 
-  async sendAdminOtp(
-    admin: User,
-    purpose?: string,
-    recipientEmail?: string,
-  ) {
+  async sendAdminOtp(admin: User, purpose?: string, recipientEmail?: string) {
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(
-      Date.now() + this.otpTtlMinutes * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + this.otpTtlMinutes * 60 * 1000);
     const resolvedPurpose = purpose?.trim() || this.otpPurposeDefault;
     const recipient = recipientEmail?.trim().toLowerCase();
 
@@ -472,10 +464,7 @@ export class AdminService {
     };
   }
 
-  async verifyAdminOtp(
-    admin: User,
-    data: { otp: string; purpose?: string },
-  ) {
+  async verifyAdminOtp(admin: User, data: { otp: string; purpose?: string }) {
     const resolvedPurpose = data.purpose?.trim() || this.otpPurposeDefault;
     const now = new Date();
 
@@ -921,14 +910,11 @@ export class AdminService {
 
     if (!updated.fileUrl) {
       const buffer = await buildInvoicePdf(updated);
-      const saved = await writePdfToUploads(
-        `invoices/${updated.id}`,
-        `invoice-${updated.invoiceNumber}.pdf`,
-        buffer,
-      );
+      const key = `invoices/${updated.id}/invoice-${updated.invoiceNumber}.pdf`;
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
       await this.prisma.invoice.update({
         where: { id },
-        data: { fileUrl: saved.fileUrl },
+        data: { fileUrl: storedKey },
       });
     }
 
@@ -983,14 +969,11 @@ export class AdminService {
 
     if (!updated.receiptUrl) {
       const buffer = await buildReceiptPdf(updated);
-      const saved = await writePdfToUploads(
-        `invoices/${updated.id}`,
-        `receipt-${updated.invoiceNumber}.pdf`,
-        buffer,
-      );
+      const key = `receipts/${updated.id}/receipt-${updated.invoiceNumber}.pdf`;
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
       await this.prisma.invoice.update({
         where: { id },
-        data: { receiptUrl: saved.fileUrl },
+        data: { receiptUrl: storedKey },
       });
     }
 
@@ -1013,14 +996,19 @@ export class AdminService {
 
     if (!invoice) throw new NotFoundException('Invoice not found');
 
+    const filename = `invoice-${invoice.invoiceNumber}.pdf`;
+    const key = `invoices/${invoice.id}/${filename}`;
+    let buffer: Buffer;
+
     if (invoice.fileUrl) {
-      const path = resolveUploadsPath(invoice.fileUrl);
-      if (fs.existsSync(path)) {
-        return {
-          filename: `invoice-${invoice.invoiceNumber}.pdf`,
-          content: await fs.promises.readFile(path),
-        };
-      }
+      buffer = await getFile(invoice.fileUrl);
+    } else {
+      buffer = await buildInvoicePdf(invoice);
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { fileUrl: storedKey },
+      });
     }
 
     await this.auditService.log(
@@ -1032,8 +1020,8 @@ export class AdminService {
     );
 
     return {
-      filename: `invoice-${invoice.invoiceNumber}.pdf`,
-      content: await buildInvoicePdf(invoice),
+      filename,
+      content: buffer,
     };
   }
 
@@ -1045,14 +1033,19 @@ export class AdminService {
 
     if (!invoice) throw new NotFoundException('Invoice not found');
 
+    const filename = `receipt-${invoice.invoiceNumber}.pdf`;
+    const key = `receipts/${invoice.id}/${filename}`;
+    let buffer: Buffer;
+
     if (invoice.receiptUrl) {
-      const path = resolveUploadsPath(invoice.receiptUrl);
-      if (fs.existsSync(path)) {
-        return {
-          filename: `receipt-${invoice.invoiceNumber}.pdf`,
-          content: await fs.promises.readFile(path),
-        };
-      }
+      buffer = await getFile(invoice.receiptUrl);
+    } else {
+      buffer = await buildReceiptPdf(invoice);
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { receiptUrl: storedKey },
+      });
     }
 
     await this.auditService.log(
@@ -1064,8 +1057,8 @@ export class AdminService {
     );
 
     return {
-      filename: `receipt-${invoice.invoiceNumber}.pdf`,
-      content: await buildReceiptPdf(invoice),
+      filename,
+      content: buffer,
     };
   }
   // PDF generation handled in src/invoices/invoice-pdf.ts

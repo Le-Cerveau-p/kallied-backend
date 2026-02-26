@@ -17,27 +17,27 @@ async function main() {
     },
   });
 
-  await prisma.user.upsert({
-    where: { email: 'staff@kallied.com' },
-    update: {},
-    create: {
-      name: 'Staff Member',
-      email: 'staff@kallied.com',
-      password,
-      role: Role.STAFF,
-    },
-  });
+  // await prisma.user.upsert({
+  //   where: { email: 'staff@kallied.com' },
+  //   update: {},
+  //   create: {
+  //     name: 'Staff Member',
+  //     email: 'staff@kallied.com',
+  //     password,
+  //     role: Role.STAFF,
+  //   },
+  // });
 
-  await prisma.user.upsert({
-    where: { email: 'client@kallied.com' },
-    update: {},
-    create: {
-      name: 'Test Client',
-      email: 'client@kallied.com',
-      password,
-      role: Role.CLIENT,
-    },
-  });
+  // await prisma.user.upsert({
+  //   where: { email: 'client@kallied.com' },
+  //   update: {},
+  //   create: {
+  //     name: 'Test Client',
+  //     email: 'client@kallied.com',
+  //     password,
+  //     role: Role.CLIENT,
+  //   },
+  // });
 
   console.log('✅ Admin & Staff seeded');
 }

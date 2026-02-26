@@ -5,8 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChatThreadType, Role, User } from '@prisma/client';
-import * as fs from 'fs';
-import * as path from 'path';
+import { uploadFile } from 'src/common/storage.service';
 
 @Injectable()
 export class ChatService {
@@ -340,23 +339,17 @@ export class ChatService {
     });
 
     if (payload.file) {
-      const uploadDir = path.join(
-        process.cwd(),
-        'uploads',
-        'chats',
-        payload.threadId,
-      );
-
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-
       const filename = `${Date.now()}-${payload.file.name}`;
-      const filePath = path.join(uploadDir, filename);
-
-      fs.writeFileSync(filePath, payload.file.buffer);
-
-      const fileUrl = `/uploads/chats/${payload.threadId}/${filename}`;
+      const key = `chats/${payload.threadId}/${filename}`;
+      const storedKey = await uploadFile(
+        key,
+        payload.file.buffer,
+        payload.file.mimeType,
+      );
+      const fileUrl =
+        process.env.STORAGE_DRIVER === 'local'
+          ? `/uploads/${storedKey}`
+          : `${process.env.R2_PUBLIC_URL}/${storedKey}`;
 
       await this.prisma.chatAttachment.create({
         data: {

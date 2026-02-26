@@ -9,26 +9,18 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
-  ProcurementStatus,
-  ProjectStatus,
-  Role,
   User,
   InvoiceStatus,
   AuditAction,
   AuditEntity,
   TimesheetStatus,
 } from '@prisma/client';
-import { startOfMonth, endOfMonth } from 'date-fns';
 import { ChatService } from 'src/chat/chat.service';
 import { ProjectsService } from 'src/projects/projects.service';
 import { ProcurementService } from 'src/procurements/procurement.service';
 import { AuditService } from 'src/audit/audit.service';
-import * as fs from 'fs';
-import {
-  buildInvoicePdf,
-  buildReceiptPdf,
-  resolveUploadsPath,
-} from 'src/invoices/invoice-pdf';
+import { buildInvoicePdf, buildReceiptPdf } from 'src/invoices/invoice-pdf';
+import { getFile, uploadFile } from 'src/common/storage.service';
 
 @Injectable()
 export class StaffService {
@@ -371,6 +363,7 @@ export class StaffService {
     });
 
     if (!invoice) throw new NotFoundException('Invoice not found');
+
     if (
       invoice.status !== InvoiceStatus.APPROVED &&
       invoice.status !== InvoiceStatus.PAID
@@ -378,14 +371,24 @@ export class StaffService {
       throw new BadRequestException('Invoice not approved yet');
     }
 
+    const filename = `invoice-${invoice.invoiceNumber}.pdf`;
+    const key = `invoices/${invoice.id}/${filename}`;
+
+    let buffer: Buffer;
+
+    // ✅ If already stored
     if (invoice.fileUrl) {
-      const path = resolveUploadsPath(invoice.fileUrl);
-      if (fs.existsSync(path)) {
-        return {
-          filename: `invoice-${invoice.invoiceNumber}.pdf`,
-          content: await fs.promises.readFile(path),
-        };
-      }
+      buffer = await getFile(invoice.fileUrl);
+    } else {
+      // ✅ Generate + upload
+      buffer = await buildInvoicePdf(invoice);
+
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
+
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { fileUrl: storedKey },
+      });
     }
 
     await this.auditService.log(
@@ -397,8 +400,8 @@ export class StaffService {
     );
 
     return {
-      filename: `invoice-${invoice.invoiceNumber}.pdf`,
-      content: await buildInvoicePdf(invoice),
+      filename,
+      content: buffer,
     };
   }
 
@@ -415,14 +418,26 @@ export class StaffService {
 
     if (!invoice) throw new NotFoundException('Invoice not found');
 
+    if (invoice.status !== InvoiceStatus.PAID) {
+      throw new BadRequestException('Receipt not available until paid');
+    }
+
+    const filename = `receipt-${invoice.invoiceNumber}.pdf`;
+    const key = `receipts/${invoice.id}/${filename}`;
+
+    let buffer: Buffer;
+
     if (invoice.receiptUrl) {
-      const path = resolveUploadsPath(invoice.receiptUrl);
-      if (fs.existsSync(path)) {
-        return {
-          filename: `receipt-${invoice.invoiceNumber}.pdf`,
-          content: await fs.promises.readFile(path),
-        };
-      }
+      buffer = await getFile(invoice.receiptUrl);
+    } else {
+      buffer = await buildReceiptPdf(invoice);
+
+      const storedKey = await uploadFile(key, buffer, 'application/pdf');
+
+      await this.prisma.invoice.update({
+        where: { id: invoice.id },
+        data: { receiptUrl: storedKey },
+      });
     }
 
     await this.auditService.log(
@@ -434,8 +449,8 @@ export class StaffService {
     );
 
     return {
-      filename: `receipt-${invoice.invoiceNumber}.pdf`,
-      content: await buildReceiptPdf(invoice),
+      filename,
+      content: buffer,
     };
   }
 

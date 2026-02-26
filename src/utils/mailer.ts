@@ -1,57 +1,56 @@
 import nodemailer from 'nodemailer';
 
-const DEFAULT_SENDER_EMAIL = 'techcity025@gmail.com';
-const DEFAULT_CONTACT_RECEIVER_EMAIL = 'techcity025@gmail.com';
-
-const getSenderEmail = () =>
-  process.env.OTP_SENDER_EMAIL ?? DEFAULT_SENDER_EMAIL;
-
-const getContactReceiverEmail = () =>
-  process.env.CONTACT_RECEIVER_EMAIL ?? DEFAULT_CONTACT_RECEIVER_EMAIL;
-
 const getTransporter = () => {
-  const user = getSenderEmail();
-  const pass = process.env.OTP_EMAIL_PASS;
+  const host = process.env.MAIL_HOST;
+  const port = Number(process.env.MAIL_PORT);
+  const user = process.env.MAIL_USER;
+  const pass = process.env.MAIL_PASS;
 
-  if (!pass) {
-    throw new Error('OTP email not configured: missing OTP_EMAIL_PASS');
+  if (!host || !port || !user || !pass) {
+    throw new Error('Mail configuration is incomplete');
   }
 
   return nodemailer.createTransport({
-    service: 'gmail',
+    host,
+    port,
+    secure: true,
     auth: { user, pass },
   });
 };
 
+/**
+ * SEND OTP EMAIL
+ */
 export const sendOtpEmail = async (params: {
   otp: string;
   purpose: string;
   expiresAt: Date;
   requestedBy: string;
-  to?: string;
+  to: string;
 }) => {
   const transporter = getTransporter();
-  const to = params.to ?? process.env.OTP_AUTH_EMAIL ?? getSenderEmail();
-  const from = getSenderEmail();
-  const expiresAt = params.expiresAt.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  });
+
+  const from = process.env.MAIL_FROM_OTP!;
 
   await transporter.sendMail({
-    from: `K-Allied <${from}>`,
-    to,
-    subject: `K-Allied OTP (${params.purpose})`,
-    text: `OTP: ${params.otp}\nPurpose: ${params.purpose}\nRequested by: ${params.requestedBy}\nExpires at: ${expiresAt}`,
+    from: `K-Allied Security <${from}>`,
+    to: params.to,
+    subject: `Your OTP Code`,
+    text: `
+OTP: ${params.otp}
+
+Purpose: ${params.purpose}
+Requested By: ${params.requestedBy}
+Expires At: ${params.expiresAt.toLocaleString()}
+    `,
   });
 
-  return { to };
+  return { to: params.to };
 };
 
+/**
+ * SEND CONTACT EMAIL
+ */
 export const sendContactEmail = async (params: {
   name: string;
   email: string;
@@ -59,21 +58,21 @@ export const sendContactEmail = async (params: {
   message: string;
 }) => {
   const transporter = getTransporter();
-  const from = getSenderEmail();
-  const to = getContactReceiverEmail();
+
+  const from = process.env.MAIL_FROM_CONTACT!;
+  const to = process.env.MAIL_FROM_CONTACT!;
 
   await transporter.sendMail({
     from: `K-Allied Website <${from}>`,
     to,
     replyTo: params.email,
     subject: `[Website Contact] ${params.subject}`,
-    text: [
-      `Name: ${params.name}`,
-      `Email: ${params.email}`,
-      `Subject: ${params.subject}`,
-      '',
-      params.message,
-    ].join('\n'),
+    text: `
+Name: ${params.name}
+Email: ${params.email}
+
+${params.message}
+    `,
   });
 
   return { to };

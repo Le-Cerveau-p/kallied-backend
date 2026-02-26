@@ -1,5 +1,4 @@
 import PDFDocument from 'pdfkit';
-import * as fs from 'fs';
 import * as path from 'path';
 
 const FONT_PATH = path.join(
@@ -34,33 +33,6 @@ const collectPdfBuffer = (doc: PDFKit.PDFDocument) =>
     doc.on('data', (chunk) => chunks.push(chunk));
     doc.on('end', () => resolve(Buffer.concat(chunks)));
   });
-
-const ensureUploadsDir = (relativeDir: string) => {
-  const safeDir = relativeDir.replace(/^\/+/, '');
-  const dirPath = path.join(process.cwd(), 'uploads', safeDir);
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-  return dirPath;
-};
-
-export const resolveUploadsPath = (fileUrl: string) => {
-  const safeUrl = fileUrl.replace(/^\/+/, '');
-  return path.join(process.cwd(), safeUrl);
-};
-
-export const writePdfToUploads = async (
-  relativeDir: string,
-  filename: string,
-  buffer: Buffer,
-) => {
-  const dirPath = ensureUploadsDir(relativeDir);
-  const filePath = path.join(dirPath, filename);
-  await fs.promises.writeFile(filePath, buffer);
-  const safeDir = relativeDir.replace(/^\/+/, '');
-  const fileUrl = `/uploads/${safeDir}/${filename}`.replace(/\/{2,}/g, '/');
-  return { filePath, fileUrl };
-};
 
 export async function buildInvoicePdf(invoice: any) {
   const doc = new PDFDocument({ size: 'A4', margin: 50 });
