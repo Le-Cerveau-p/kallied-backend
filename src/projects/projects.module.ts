@@ -7,9 +7,10 @@ import { AuditModule } from 'src/audit/audit.module';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { ChatService } from 'src/chat/chat.service';
 import { ChatGateway } from 'src/chat/chat.gateway';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, AuditModule],
+  imports: [PrismaModule, AuthModule, AuditModule, NotificationsModule],
   controllers: [ProjectsController],
   providers: [ProjectsService, PrismaService, ChatService, ChatGateway],
 })

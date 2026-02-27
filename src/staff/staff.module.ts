@@ -8,9 +8,10 @@ import { ChatGateway } from 'src/chat/chat.gateway';
 import { ProcurementService } from 'src/procurements/procurement.service';
 import { StaffService } from './staff.service';
 import { StaffController } from './staff.controller';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, NotificationsModule],
   providers: [
     StaffService,
     ChatService,

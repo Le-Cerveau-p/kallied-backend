@@ -25,6 +25,7 @@ import { ChatService } from 'src/chat/chat.service';
 import { ChatGateway } from 'src/chat/chat.gateway';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { r2 } from 'src/common/r2.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class ProjectsService {
@@ -33,6 +34,7 @@ export class ProjectsService {
     private readonly auditService: AuditService,
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async createProject(data: CreateProjectDto, user: User): Promise<Project> {
@@ -94,6 +96,22 @@ export class ProjectsService {
       newProject.id,
       `Project "${newProject.name}" created`,
     );
+
+    await this.notificationsService.createForRoles(
+      [Role.ADMIN],
+      {
+        title: 'New Project Created',
+        message: `Project "${newProject.name}" was created and may require admin attention.`,
+        type: 'PROJECT_CREATED',
+      },
+      [user.id],
+    );
+
+    await this.notificationsService.createForUsers([newProject.clientId], {
+      title: 'New Project Created',
+      message: `Project "${newProject.name}" has been created for your account.`,
+      type: 'PROJECT_CREATED',
+    });
 
     return newProject;
   }
@@ -207,6 +225,11 @@ export class ProjectsService {
       throw new ForbiddenException('Invalid staff user');
     }
 
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true, name: true, clientId: true },
+    });
+
     const assignedStaff = await this.prisma.user.findUnique({
       where: {
         id: staffId,
@@ -220,12 +243,30 @@ export class ProjectsService {
       `"${assignedStaff?.name}" Staff assigned to project`,
     );
 
-    return this.prisma.projectStaff.create({
+    const assignment = await this.prisma.projectStaff.create({
       data: {
         projectId,
         staffId,
       },
     });
+
+    await this.chatService.addStaffToProjectThreads(projectId, staffId);
+
+    await this.notificationsService.createForUsers([staffId], {
+      title: 'Added To Project',
+      message: `You were assigned to project "${project?.name ?? projectId}".`,
+      type: 'PROJECT_ASSIGNMENT',
+    });
+
+    if (project?.clientId) {
+      await this.notificationsService.createForUsers([project.clientId], {
+        title: 'Staff Assigned',
+        message: `${assignedStaff?.name ?? 'A staff member'} was assigned to project "${project.name}".`,
+        type: 'PROJECT_STAFF_ASSIGNED',
+      });
+    }
+
+    return assignment;
   }
 
   async getProjectsForUser(user: User) {
@@ -345,19 +386,15 @@ export class ProjectsService {
       },
     });
 
-    // 🔔 notify admin
-    const admins = await this.prisma.user.findMany({
-      where: { role: Role.ADMIN },
-    });
-
-    await this.prisma.notification.createMany({
-      data: admins.map((admin) => ({
+    await this.notificationsService.createForRoles(
+      [Role.ADMIN],
+      {
         title: 'Project Start Approval Required',
-        message: `Project "${project.name}" has requested approval to start.\n Request by "${staffId}"`,
-        type: 'PROJECT_APPROVAL',
-        userId: admin.id,
-      })),
-    });
+        message: `Project "${project.name}" requested approval to start.`,
+        type: 'PROJECT_APPROVAL_REQUIRED',
+      },
+      [staffId],
+    );
 
     await this.prisma.projectUpdate.create({
       data: {
@@ -411,6 +448,18 @@ export class ProjectsService {
       'Project approved',
     );
 
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Project Approved',
+      message: `Project "${project.name}" has been approved and is now in progress.`,
+      type: 'PROJECT_APPROVED',
+    });
+
     return this.prisma.project.update({
       where: { id: projectId },
       data: { status: ProjectStatus.IN_PROGRESS, approvedById: user.id },
@@ -449,6 +498,18 @@ export class ProjectsService {
       projectId,
       `"${user.name}" approved ${project.name} completion`,
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Project Completed',
+      message: `Project "${project.name}" has been marked as completed.`,
+      type: 'PROJECT_COMPLETED',
+    });
 
     return this.prisma.project.update({
       where: { id: projectId },
@@ -489,6 +550,19 @@ export class ProjectsService {
       projectId,
       `"${user.name}" added an update to ${project?.name}.`,
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId,
+      includeAdmins: true,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Project Update',
+      message: `"${user.name}" posted an update on "${project.name}": ${data.note}`,
+      type: 'PROJECT_UPDATE',
+    });
 
     return this.prisma.projectUpdate.create({
       data: {

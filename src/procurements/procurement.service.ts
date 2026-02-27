@@ -23,12 +23,14 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import * as path from 'path';
 import * as fs from 'fs';
 import { th } from 'date-fns/locale/th';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class ProcurementService {
   constructor(
     private prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // 1️⃣ CREATE
@@ -61,8 +63,7 @@ export class ProcurementService {
       dto.projectId,
       `"${user.name}" created a procurement request for ${project?.name}.`,
     );
-
-    return this.prisma.procurementRequest.create({
+    const created = await this.prisma.procurementRequest.create({
       data: {
         title: dto.title,
         description: dto.description,
@@ -71,6 +72,21 @@ export class ProcurementService {
         createdById: user.id,
       },
     });
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: dto.projectId,
+      includeAdmins: true,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'New Procurement Request',
+      message: `"${user.name}" created procurement "${dto.title}" for project "${project?.name ?? dto.projectId}".`,
+      type: 'PROCUREMENT_CREATED',
+    });
+
+    return created;
   }
 
   // 2️⃣ UPDATE (DRAFT only)
@@ -132,10 +148,26 @@ export class ProcurementService {
       0,
     );
 
-    return this.prisma.procurementRequest.update({
+    const updated = await this.prisma.procurementRequest.update({
       where: { id },
       data: { cost: total, status: ProcurementStatus.SUBMITTED },
     });
+
+    const project = await this.prisma.project.findUnique({
+      where: { id: request.projectId },
+      select: { name: true },
+    });
+    await this.notificationsService.createForRoles(
+      [Role.ADMIN],
+      {
+        title: 'Procurement Approval Required',
+        message: `Procurement "${request.title}" for project "${project?.name ?? request.projectId}" is awaiting approval.`,
+        type: 'PROCUREMENT_SUBMITTED',
+      },
+      [user.id],
+    );
+
+    return updated;
   }
 
   // 4️⃣ APPROVE
@@ -158,13 +190,27 @@ export class ProcurementService {
       `"${admin.name}" approved procurement ${request?.title}.`,
     );
 
-    return this.prisma.procurementRequest.update({
+    const updated = await this.prisma.procurementRequest.update({
       where: { id },
       data: {
         status: ProcurementStatus.APPROVED,
         approvedById: admin.id,
       },
     });
+
+    const recipients = await this.notificationsService.projectRecipients({
+      projectId: request.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [admin.id],
+    });
+    await this.notificationsService.createForUsers(recipients, {
+      title: 'Procurement Approved',
+      message: `Procurement "${request.title}" has been approved.`,
+      type: 'PROCUREMENT_APPROVED',
+    });
+
+    return updated;
   }
 
   // 5️⃣ REJECT
@@ -187,7 +233,7 @@ export class ProcurementService {
       `"${admin.name}" rejected procurement ${request?.title}.`,
     );
 
-    return this.prisma.procurementRequest.update({
+    const updated = await this.prisma.procurementRequest.update({
       where: { id },
       data: {
         status: ProcurementStatus.REJECTED,
@@ -195,6 +241,14 @@ export class ProcurementService {
         approvedById: admin.id,
       },
     });
+
+    await this.notificationsService.createForUsers([request.createdById], {
+      title: 'Procurement Rejected',
+      message: `Procurement "${request.title}" was rejected. Reason: ${reason}`,
+      type: 'PROCUREMENT_REJECTED',
+    });
+
+    return updated;
   }
 
   // 🔎 Helper
@@ -329,13 +383,27 @@ export class ProcurementService {
     );
 
     return this.prisma.$transaction(async (tx) => {
-      return tx.purchaseOrder.create({
+      const po = await tx.purchaseOrder.create({
         data: {
           orderNumber: `PO-${Date.now()}`,
           requestId,
           orderedById: user.id,
         },
       });
+
+      const recipients = await this.notificationsService.projectRecipients({
+        projectId: request.projectId,
+        includeClient: true,
+        includeStaff: true,
+        excludeUserIds: [user.id],
+      });
+      await this.notificationsService.createForUsers(recipients, {
+        title: 'Purchase Order Created',
+        message: `Purchase order ${po.orderNumber} was generated for "${request.title}".`,
+        type: 'PO_CREATED',
+      });
+
+      return po;
     });
   }
 
@@ -357,13 +425,27 @@ export class ProcurementService {
       `"${user.name}" marked purchase order for ${request.pRequest.title} as ordered.`,
     );
 
-    return await this.prisma.purchaseOrder.update({
+    const updated = await this.prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
         status: PurchaseOrderStatus.ORDERED,
         orderedAt: new Date(),
       },
     });
+
+    const recipients = await this.notificationsService.projectRecipients({
+      projectId: request.pRequest.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipients, {
+      title: 'Purchase Order Ordered',
+      message: `Purchase order ${request.orderNumber} for "${request.pRequest.title}" has been marked as ordered.`,
+      type: 'PO_ORDERED',
+    });
+
+    return updated;
   }
 
   async markAsDelivered(poId: string, user: User) {
@@ -384,13 +466,27 @@ export class ProcurementService {
       `"${user.name}" marked purchase order for ${request.pRequest.title} as delivered.`,
     );
 
-    return await this.prisma.purchaseOrder.update({
+    const updated = await this.prisma.purchaseOrder.update({
       where: { id: poId },
       data: {
         status: PurchaseOrderStatus.DELIVERED,
         deliveredAt: new Date(),
       },
     });
+
+    const recipients = await this.notificationsService.projectRecipients({
+      projectId: request.pRequest.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [user.id],
+    });
+    await this.notificationsService.createForUsers(recipients, {
+      title: 'Purchase Order Delivered',
+      message: `Purchase order ${request.orderNumber} for "${request.pRequest.title}" has been delivered.`,
+      type: 'PO_DELIVERED',
+    });
+
+    return updated;
   }
 
   async uploadDocument(

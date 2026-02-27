@@ -9,9 +9,10 @@ import { AuditService } from 'src/audit/audit.service';
 import { ChatGateway } from 'src/chat/chat.gateway';
 import { ProcurementService } from 'src/procurements/procurement.service';
 import { CompanyModule } from 'src/company/company.module';
+import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, CompanyModule],
+  imports: [PrismaModule, AuthModule, CompanyModule, NotificationsModule],
   providers: [
     AdminService,
     ChatService,

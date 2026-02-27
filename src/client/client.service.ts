@@ -19,6 +19,7 @@ import { AuditService } from 'src/audit/audit.service';
 import { buildInvoicePdf, buildReceiptPdf } from 'src/invoices/invoice-pdf';
 import { CompanyService } from 'src/company/company.service';
 import { getFile, uploadFile } from 'src/common/storage.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class ClientService {
@@ -26,6 +27,7 @@ export class ClientService {
     private prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly companyService: CompanyService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getDashboard(clientId: string) {
@@ -375,6 +377,18 @@ export class ClientService {
       invoiceId,
       'Client marked invoice as paid',
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: invoice.projectId,
+      includeAdmins: true,
+      includeStaff: true,
+      excludeUserIds: [clientId],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Client Marked Invoice Paid',
+      message: `Client marked invoice ${invoice.invoiceNumber} as paid. Payment confirmation is required.`,
+      type: 'INVOICE_PAYMENT_MARKED',
+    });
 
     return updated;
   }

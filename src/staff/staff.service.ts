@@ -21,6 +21,7 @@ import { ProcurementService } from 'src/procurements/procurement.service';
 import { AuditService } from 'src/audit/audit.service';
 import { buildInvoicePdf, buildReceiptPdf } from 'src/invoices/invoice-pdf';
 import { getFile, uploadFile } from 'src/common/storage.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class StaffService {
@@ -30,6 +31,7 @@ export class StaffService {
     private readonly projectsService: ProjectsService,
     private readonly procurementService: ProcurementService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getDashboard(userId: string) {
@@ -347,6 +349,19 @@ export class StaffService {
       invoice.id,
       'Staff created invoice',
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: invoice.projectId,
+      includeAdmins: true,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [staffId],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'New Invoice Created',
+      message: `Invoice ${invoice.invoiceNumber} was created for project "${invoice.project.name}".`,
+      type: 'INVOICE_CREATED',
+    });
 
     return invoice;
   }

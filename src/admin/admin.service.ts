@@ -31,6 +31,7 @@ import {
   CompanyProfileInput,
 } from 'src/company/company.service';
 import { getFile, uploadFile } from 'src/common/storage.service';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
@@ -50,6 +51,7 @@ export class AdminService {
     private readonly procurementService: ProcurementService,
     private readonly auditService: AuditService,
     private readonly companyService: CompanyService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async getDashboardSummary() {
@@ -530,13 +532,38 @@ export class AdminService {
   }
 
   async assignStaff(projectId: string, staffId: string) {
-    await this.prisma.projectStaff.create({
+    const assignment = await this.prisma.projectStaff.create({
       data: { projectId, staffId },
     });
 
     await this.chatService.addStaffToProjectThreads(projectId, staffId);
 
-    return { message: 'Staff assigned successfully' };
+    const [project, staff] = await Promise.all([
+      this.prisma.project.findUnique({
+        where: { id: projectId },
+        select: { name: true, clientId: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: staffId },
+        select: { name: true },
+      }),
+    ]);
+
+    await this.notificationsService.createForUsers([staffId], {
+      title: 'Added To Project',
+      message: `You were assigned to project "${project?.name ?? projectId}".`,
+      type: 'PROJECT_ASSIGNMENT',
+    });
+
+    if (project?.clientId) {
+      await this.notificationsService.createForUsers([project.clientId], {
+        title: 'Staff Assigned',
+        message: `${staff?.name ?? 'A staff member'} was assigned to project "${project.name}".`,
+        type: 'PROJECT_STAFF_ASSIGNED',
+      });
+    }
+
+    return { message: 'Staff assigned successfully', assignment };
   }
 
   async removeStaff(projectId: string, staffId: string, admin: User) {
@@ -784,6 +811,18 @@ export class AdminService {
       'Admin created invoice',
     );
 
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: invoice.projectId,
+      includeStaff: true,
+      includeClient: true,
+      excludeUserIds: [adminId],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'New Invoice',
+      message: `Invoice ${invoice.invoiceNumber} was created for project "${invoice.project.name}".`,
+      type: 'INVOICE_CREATED',
+    });
+
     return invoice;
   }
 
@@ -926,6 +965,18 @@ export class AdminService {
       'Admin approved invoice',
     );
 
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: updated.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [admin.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Invoice Approved',
+      message: `Invoice ${updated.invoiceNumber} has been approved.`,
+      type: 'INVOICE_APPROVED',
+    });
+
     return updated;
   }
 
@@ -949,6 +1000,18 @@ export class AdminService {
       id,
       'Admin rejected invoice',
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: updated.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [admin.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Invoice Rejected',
+      message: `Invoice ${updated.invoiceNumber} was rejected. Reason: ${reason}`,
+      type: 'INVOICE_REJECTED',
+    });
 
     return updated;
   }
@@ -984,6 +1047,18 @@ export class AdminService {
       id,
       'Admin confirmed invoice payment',
     );
+
+    const recipientIds = await this.notificationsService.projectRecipients({
+      projectId: updated.projectId,
+      includeClient: true,
+      includeStaff: true,
+      excludeUserIds: [admin.id],
+    });
+    await this.notificationsService.createForUsers(recipientIds, {
+      title: 'Payment Confirmed',
+      message: `Payment for invoice ${updated.invoiceNumber} has been confirmed.`,
+      type: 'INVOICE_PAYMENT_CONFIRMED',
+    });
 
     return updated;
   }
