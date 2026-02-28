@@ -23,11 +23,16 @@ export class CompanyService {
 
   private getDefaults() {
     return {
-      name: process.env.COMPANY_NAME ?? 'Your Company Name',
+      name: process.env.COMPANY_NAME ?? 'K-Allied Integrated Solutions Ltd',
       department: process.env.COMPANY_DEPARTMENT ?? 'Professional Services',
-      address: process.env.COMPANY_ADDRESS ?? '123 Business Street, Suite 100',
-      email: process.env.COMPANY_EMAIL ?? 'billing@yourcompany.com',
-      phone: process.env.COMPANY_PHONE ?? '(555) 123-4567',
+      address:
+        process.env.COMPANY_ADDRESS ??
+        'Abuja, Federal Capital Territory Nigeria',
+      email: process.env.COMPANY_EMAIL ?? 'info@k-allied.org',
+      phone: process.env.COMPANY_PHONE ?? '(+234) 703 800 1614',
+      facebookUrl: process.env.FACEBOOK_URL ?? '',
+      twitterUrl: process.env.TWITTER_URL ?? '',
+      whatsappUrl: process.env.WHATSAPP_URL ?? '',
       mapLabel: process.env.COMPANY_MAP_LABEL ?? 'Our Location',
       mapAddress:
         process.env.COMPANY_MAP_ADDRESS ??
@@ -86,13 +91,10 @@ export class CompanyService {
         mapLabel: data.mapLabel ?? this.getDefaults().mapLabel,
         mapAddress: data.mapAddress ?? this.getDefaults().mapAddress,
         mapUrl: data.mapUrl ?? this.getDefaults().mapUrl,
-        mapEmbedUrl: data.mapEmbedUrl ?? this.getDefaults().mapEmbedUrl ?? undefined,
-        mapLat:
-          data.mapLat ??
-          (this.getDefaults().mapLat ?? undefined),
-        mapLng:
-          data.mapLng ??
-          (this.getDefaults().mapLng ?? undefined),
+        mapEmbedUrl:
+          data.mapEmbedUrl ?? this.getDefaults().mapEmbedUrl ?? undefined,
+        mapLat: data.mapLat ?? this.getDefaults().mapLat ?? undefined,
+        mapLng: data.mapLng ?? this.getDefaults().mapLng ?? undefined,
       },
     });
   }
