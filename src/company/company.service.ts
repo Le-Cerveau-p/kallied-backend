@@ -52,7 +52,19 @@ export class CompanyService {
     const defaults = this.getDefaults();
     const profile = await this.prisma.companyProfile.upsert({
       where: { id: 'default' },
-      update: {},
+      update: {
+        name: defaults.name,
+        department: defaults.department,
+        address: defaults.address,
+        email: defaults.email,
+        phone: defaults.phone,
+        mapLabel: defaults.mapLabel,
+        mapAddress: defaults.mapAddress,
+        mapUrl: defaults.mapUrl,
+        mapEmbedUrl: defaults.mapEmbedUrl ?? undefined,
+        mapLat: defaults.mapLat ?? undefined,
+        mapLng: defaults.mapLng ?? undefined,
+      },
       create: {
         id: 'default',
         name: defaults.name,
