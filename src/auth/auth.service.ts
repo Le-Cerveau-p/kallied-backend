@@ -3,9 +3,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { Role, UserStatus } from '@prisma/client';
+import { sendOtpEmail } from '../utils/mailer';
 
 @Injectable()
 export class AuthService {
+  private readonly otpTtlMinutes = 10;
+  private readonly resetPurpose = 'PASSWORD_RESET';
+
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
@@ -123,5 +127,99 @@ export class AuthService {
         role: user.role,
       },
     };
+  }
+
+  async requestPasswordResetOtp(email: string) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Email not found');
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otp, 10);
+    const expiresAt = new Date(Date.now() + this.otpTtlMinutes * 60 * 1000);
+
+    await this.prisma.otpToken.updateMany({
+      where: {
+        userId: user.id,
+        purpose: this.resetPurpose,
+        consumedAt: null,
+      },
+      data: { consumedAt: new Date() },
+    });
+
+    await this.prisma.otpToken.create({
+      data: {
+        userId: user.id,
+        purpose: this.resetPurpose,
+        otpHash,
+        expiresAt,
+      },
+    });
+
+    await sendOtpEmail({
+      otp,
+      purpose: this.resetPurpose,
+      expiresAt,
+      requestedBy: normalizedEmail,
+      to: normalizedEmail,
+    });
+
+    return { message: 'OTP sent' };
+  }
+
+  async resetPassword(data: { email: string; otp: string; newPassword: string }) {
+    const email = data.email.trim().toLowerCase();
+    const otp = data.otp.trim();
+    const newPassword = data.newPassword.trim();
+
+    if (newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Email not found');
+    }
+
+    const token = await this.prisma.otpToken.findFirst({
+      where: {
+        userId: user.id,
+        purpose: this.resetPurpose,
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!token) {
+      throw new BadRequestException('OTP not found or expired');
+    }
+
+    const valid = await bcrypt.compare(otp, token.otpHash);
+    if (!valid) {
+      throw new BadRequestException('Invalid OTP');
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashed, authInvalidatedAt: new Date() },
+    });
+
+    await this.prisma.otpToken.update({
+      where: { id: token.id },
+      data: { consumedAt: new Date() },
+    });
+
+    return { message: 'Password reset successful' };
   }
 }

@@ -17,6 +17,18 @@ export class AuthController {
     return this.auth.login(body.email, body.password);
   }
 
+  @Post('password/otp')
+  requestPasswordResetOtp(@Body() body: { email: string }) {
+    return this.auth.requestPasswordResetOtp(body.email);
+  }
+
+  @Post('password/reset')
+  resetPassword(
+    @Body() body: { email: string; otp: string; newPassword: string },
+  ) {
+    return this.auth.resetPassword(body);
+  }
+
   @Get('pip')
   pip() {
     return this.auth.pip();
