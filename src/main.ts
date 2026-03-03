@@ -7,6 +7,8 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 
 dotenv.config();
+console.log('[env-check] MAIL_HOST:', process.env.MAIL_HOST);
+console.log('[env-check] MAIL_PORT:', process.env.MAIL_PORT);
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
