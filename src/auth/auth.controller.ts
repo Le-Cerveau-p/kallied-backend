@@ -29,6 +29,11 @@ export class AuthController {
     return this.auth.resetPassword(body);
   }
 
+  @Post('google')
+  loginWithGoogle(@Body() body: { idToken: string }) {
+    return this.auth.loginWithGoogle(body.idToken);
+  }
+
   @Get('pip')
   pip() {
     return this.auth.pip();

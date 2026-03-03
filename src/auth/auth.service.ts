@@ -4,11 +4,14 @@ import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 import { Role, UserStatus } from '@prisma/client';
 import { sendOtpEmail } from '../utils/mailer';
+import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
   private readonly otpTtlMinutes = 10;
   private readonly resetPurpose = 'PASSWORD_RESET';
+  private readonly googleClientId = process.env.GOOGLE_CLIENT_ID ?? '';
+  private readonly googleClient = new OAuth2Client();
 
   constructor(
     private prisma: PrismaService,
@@ -105,6 +108,55 @@ export class AuthService {
     if (!match) {
       throw new BadRequestException('Invalid credentials');
     }
+    if (user.status === UserStatus.DISABLED) {
+      throw new ForbiddenException('Account is disabled');
+    }
+
+    const expiresIn = 60 * 240;
+
+    const access_token = this.jwt.sign({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+    });
+
+    return {
+      access_token,
+      expiresIn,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
+    };
+  }
+
+  async loginWithGoogle(idToken: string) {
+    if (!this.googleClientId) {
+      throw new BadRequestException('Google client ID not configured');
+    }
+
+    const ticket = await this.googleClient.verifyIdToken({
+      idToken,
+      audience: this.googleClientId,
+    });
+
+    const payload = ticket.getPayload();
+    const email = payload?.email?.toLowerCase();
+
+    if (!email) {
+      throw new BadRequestException('Google token missing email');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return { requiresSignup: true, email, name: payload?.name ?? '' };
+    }
+
     if (user.status === UserStatus.DISABLED) {
       throw new ForbiddenException('Account is disabled');
     }
