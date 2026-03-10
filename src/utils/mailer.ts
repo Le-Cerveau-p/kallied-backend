@@ -31,6 +31,7 @@ export const sendOtpEmail = async (params: {
   const transporter = getTransporter();
 
   const from = process.env.MAIL_FROM_OTP!;
+  const expiresAtGmt = params.expiresAt.toUTCString();
 
   await transporter.sendMail({
     from: `K-Allied Security <${from}>`,
@@ -41,7 +42,7 @@ OTP: ${params.otp}
 
 Purpose: ${params.purpose}
 Requested By: ${params.requestedBy}
-Expires At: ${params.expiresAt.toLocaleString()}
+Expires At (GMT): ${expiresAtGmt}
     `,
   });
 
