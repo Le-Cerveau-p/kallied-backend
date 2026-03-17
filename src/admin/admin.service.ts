@@ -39,7 +39,7 @@ export class AdminService {
   private readonly otpTtlMinutes = 5;
   private readonly otpApprovedRecipients = (
     process.env.OTP_APPROVED_RECIPIENTS ??
-    'aremupp@gmail.com,lecerveau.techcity@gmail.com'
+    'aremupp@gmail.com,lecerveau.techcity@gmail.com,olasimeon2007@gmail.com'
   )
     .split(',')
     .map((email) => email.trim().toLowerCase())
